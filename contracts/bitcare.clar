@@ -112,3 +112,103 @@
         )
     )
 )
+
+;; Remove a user's role
+(define-public (remove-role (user principal))
+    (if (and
+            (is-eq tx-sender (var-get contract-owner))
+            (is-some (map-get? roles { user: user }))
+            (not (is-eq user tx-sender))
+        )
+        ;; Ensure user is not removing their own role
+        (ok (map-delete roles { user: user }))
+        ERR-NOT-AUTHORIZED
+    )
+)
+
+;; Beneficiary Management Functions
+
+;; Register a new beneficiary
+(define-public (register-beneficiary
+        (name (string-utf8 50))
+        (description (string-utf8 255))
+        (target-amount uint)
+    )
+    (let ((beneficiary-id (+ (var-get beneficiary-count) u1)))
+        (if (and
+                (is-authorized tx-sender ROLE-MODERATOR)
+                (> (len name) u0)
+                (> (len description) u0)
+                (> target-amount u0)
+            )
+            (begin
+                (map-set beneficiaries { id: beneficiary-id } {
+                    name: name,
+                    description: description,
+                    target-amount: target-amount,
+                    received-amount: u0,
+                    status: "active",
+                })
+                (var-set beneficiary-count beneficiary-id)
+                (ok beneficiary-id)
+            )
+            ERR-INVALID-INPUT
+        )
+    )
+)
+
+;; Get beneficiary information
+(define-read-only (get-beneficiary (id uint))
+    (match (map-get? beneficiaries { id: id })
+        beneficiary (ok beneficiary)
+        ERR-BENEFICIARY-NOT-FOUND
+    )
+)
+
+;; Donation Functions
+
+;; Make a donation to a beneficiary
+(define-public (donate
+        (beneficiary-id uint)
+        (amount uint)
+    )
+    (let ((beneficiary (unwrap! (get-beneficiary beneficiary-id) ERR-BENEFICIARY-NOT-FOUND)))
+        (if (and
+                (> amount u0)
+                (< beneficiary-id (+ (var-get beneficiary-count) u1))
+                (is-some (map-get? beneficiaries { id: beneficiary-id }))
+            )
+            (match (stx-transfer? amount tx-sender (as-contract tx-sender))
+                success (begin
+                    (map-set beneficiaries { id: beneficiary-id }
+                        (merge beneficiary { received-amount: (+ (get received-amount beneficiary) amount) })
+                    )
+                    (map-set donations { id: (+ (var-get donation-count) u1) } {
+                        donor: tx-sender,
+                        beneficiary-id: beneficiary-id,
+                        amount: amount,
+                        timestamp: stacks-block-height,
+                    })
+                    (var-set donation-count (+ (var-get donation-count) u1))
+                    (ok true)
+                )
+                error
+                ERR-INSUFFICIENT-FUNDS
+            )
+            ERR-INVALID-INPUT
+        )
+    )
+)
+
+;; Get donation information by ID
+(define-read-only (get-donation-by-id (donation-id uint))
+    (match (map-get? donations { id: donation-id })
+        donation (ok donation)
+        ERR-NOT-FOUND
+    )
+)
+
+;; Get total number of donations
+(define-read-only (get-donation-count)
+    (ok (var-get donation-count))
+)
