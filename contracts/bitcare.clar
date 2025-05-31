@@ -281,3 +281,29 @@
         )
     )
 )
+
+;; Get utilization information by ID
+(define-read-only (get-utilization-by-id (utilization-id uint))
+    (match (map-get? utilization { id: utilization-id })
+        util (ok util)
+        ERR-NOT-FOUND
+    )
+)
+
+;; Get total number of utilization entries
+(define-read-only (get-utilization-count)
+    (ok (var-get utilization-count))
+)
+
+;; Contract Initialization
+
+;; Initialize the contract with default settings
+(define-private (initialize-contract)
+    (begin
+        (map-set roles { user: tx-sender } { role: ROLE-ADMIN })
+        (var-set contract-owner tx-sender)
+    )
+)
+
+;; Initialize the contract with deployer as admin
+(initialize-contract)
